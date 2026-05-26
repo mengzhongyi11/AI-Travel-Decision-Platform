@@ -36,8 +36,8 @@ import { ref } from 'vue'
 const emit = defineEmits(
   ['addWeatherLayer']
 )
-const activeIndex = ref(-1)
 
+const activeIndex = ref(-1)
 
 const handClickCard = (e: number) => {
   activeIndex.value = e

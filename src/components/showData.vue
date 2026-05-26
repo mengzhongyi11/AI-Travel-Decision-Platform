@@ -28,7 +28,7 @@
   <div class="day">
     <div class="every-data" @click="child">
       <div class="choose">
-        各项数据：
+        实时数据：
         <select v-model="index" @change="chooseData" style="margin-left: 200px">
           <option value="0">温度</option>
           <option value="1">云量/湿度</option>
@@ -38,7 +38,7 @@
       </div>
 
       <DowEcarts
-        :weather-hours="nowWeather"
+        :chart-options="hourlyChartOptions"
         :show-chart="show"
         :show-idx="index"
         :style="{ width: 100 + '%', height: 90 + '%' }"
@@ -57,19 +57,25 @@
 </template>
 
 <script lang="ts" setup>
-import { ref, watch, computed, onUnmounted, nextTick, toRaw } from 'vue'
-import { request } from '@/utils/axios'
-import { init, type ECharts } from '@/utils/echarts'
+import { ref, watch, onUnmounted, nextTick, toRaw } from 'vue'
 import type { EChartsOption } from 'echarts'
+import { chartPool } from '@/utils/chartPool'
+import { fetchChartConfig } from '@/utils/apiClient'
+import { patchTooltipFormatter } from '@/utils/tooltipPatcher'
 import 'qweather-icons/font/qweather-icons.css'
 import DowEcarts from './nowEcarts.vue'
 import { useCollect } from '@/stores/from'
+import { request } from '@/utils/axios'
+
 const collectStore = useCollect()
 
 const chartRef = ref<HTMLDivElement>()
-let chartInstance: ECharts | null = null
+const childRef = ref<{ handleClick: () => void }>()
 
-const childRef = ref<InstanceType<typeof DowEcarts>>()
+const hourlyChartOptions = ref<Record<string, EChartsOption>>({})
+const dailyChartOption = ref<EChartsOption | null>(null)
+
+// 由 showMap.vue 调用
 function child() {
   childRef.value?.handleClick()
 }
@@ -78,9 +84,7 @@ function handleClick(e: boolean) {
   esist.value = e
 }
 
-defineExpose({
-  handleClick,
-})
+defineExpose({ handleClick })
 
 const props = defineProps<{
   citys: Array<string | string[]>
@@ -96,8 +100,11 @@ const show = ref(false)
 const index = ref(0)
 const esist = ref(false)
 const cityList = ref<string[]>([])
-let Citys = ['']
+const Citys = ['']
 let Data = {}
+
+const SERIES_MAP = ['temp', 'cloud', 'wind', 'pop'] as const
+const DAILY_MAP = ['temp', 'cloud', 'wind'] as const
 
 // 数据获取
 watch(
@@ -106,37 +113,58 @@ watch(
     if (!newVal?.length) return
 
     const addresses = newVal.flatMap((item) => (typeof item === 'string' ? [item] : item))
-    console.log('当前城市:', addresses)
-    Data = {
-      location: addresses,
-    }
+    Data = { location: addresses }
     collectStore.collectData(Data)
     nowWeathers.value = []
     dailys.value = []
-    Citys = []
+    hourlyChartOptions.value = {}
 
+    // 获取城市代码 + 原始天气数据（用于 AI context）
     await Promise.all(addresses.map((addr) => getCityCode(addr)))
     nowWeather.value = nowWeathers.value[currentCity.value] || ''
-    console.log('当前天气:', nowWeather.value)
+
+    // 获取服务端生成的图表配置
+    const primaryCity = addresses[0]
+    if (primaryCity) {
+      // 获取 7 天图表配置
+      const dailyOpts = await Promise.all(
+        DAILY_MAP.map((st) =>
+          fetchChartConfig({ chartType: 'daily', city: primaryCity, seriesType: st }).catch(
+            () => null,
+          ),
+        ),
+      )
+      // 存第一个（当前默认 seriesType）
+      dailyChartOption.value = dailyOpts[0]?.option || null
+      console.log('Received daily chart options:', dailyOpts)
+
+      // 获取逐小时图表配置
+      const hourlyOpts = await Promise.all(
+        SERIES_MAP.map((st) =>
+          fetchChartConfig({ chartType: 'hourly', city: primaryCity, seriesType: st })
+            .then((r) => ({ key: st, option: r.option }))
+            .catch(() => null),
+        ),
+      )
+      const opts: Record<string, EChartsOption> = {}
+      hourlyOpts.forEach((r) => {
+        if (r) opts[r.key] = r.option
+      })
+      hourlyChartOptions.value = opts
+    }
+
     daily.value = dailys.value[currentCity.value]
     idx.value = 0
     cityList.value = addresses
+
+    // 收集 AI context
     const datas = dailys.value.map((item) => toRaw(item))
     const weathers = []
     for (let i = 0; i < Citys.length; i++) {
-      const weather = {
-        city: Citys[i],
-        data: datas[i],
-      }
-      weathers.push(weather)
+      weathers.push({ city: Citys[i], data: datas[i] })
     }
-    const data = {
-      weather: weathers,
-    }
-    console.log(data)
-    collectStore.collectData(data)
+    collectStore.collectData({ weather: weathers })
 
-    // 数据准备好后，初始化图表
     initChart()
   },
   { immediate: true },
@@ -158,149 +186,82 @@ async function getNexttimeWeather(code: string) {
 
 async function choose(e: any) {
   idx.value = Number(e.target.value)
+  await fetchDailyOption()
   await initChart()
 }
 
-function chooseData(e: any) {
+async function chooseData(e: any) {
   index.value = Number(e.target.value)
 }
 
-function chooseCity(e: any) {
+async function chooseCity(e: any) {
   currentCity.value = Number(e.target.value)
   nowWeather.value = nowWeathers.value[currentCity.value] || ''
   daily.value = dailys.value[currentCity.value]
   idx.value = 0
+  await fetchDailyOption()
+  await fetchHourlyOptions()
   initChart()
 }
 
-// 计算配置
-const chartConfig = computed(() => {
-  if (idx.value === -1 || !daily.value.length) return null
-  const date = daily.value.map((item: any) => item.fxDate)
-  console.log(daily.value)
-  if (idx.value === 0) {
-    return {
-      name: '温度 (°C)',
-      name1: '最高温',
-      name2: '最低温',
-      data1: daily.value.map((i: any) => i.tempMax),
-      data2: daily.value.map((i: any) => i.tempMin),
-      color1: '#ff7c7c',
-      color2: '#7cb5ff',
-      date,
-    }
-  } else if (idx.value === 1) {
-    return {
-      name: '云量/湿度 (%)',
-      name1: '云量',
-      name2: '湿度',
-      data1: daily.value.map((i: any) => i.cloud),
-      data2: daily.value.map((i: any) => i.humidity),
-      color1: '#ffd166',
-      color2: '#06d6a0',
-      date,
-    }
-  } else if (idx.value === 2) {
-    return {
-      name: '风速 (km/h)',
-      name1: '昼风',
-      name2: '夜风',
-      data1: daily.value.map((i: any) => i.windSpeedDay),
-      data2: daily.value.map((i: any) => i.windSpeedNight),
-      color1: '#118ab2',
-      color2: '#073b4c',
-      date,
-    }
-  }
-  return null
-})
-
-// 初始化图表（在数据准备好后调用）
-const initChart = async () => {
-  await nextTick()
-  console.log(chartRef.value, chartConfig.value)
-  if (!chartRef.value || !chartConfig.value) return
-
-  // 如果已存在，先销毁
-  if (chartInstance) {
-    chartInstance.dispose()
-    chartInstance = null
-  }
-
-  const cfg = chartConfig.value
-  console.log(cfg)
-  const option: EChartsOption = {
-    grid: {
-      left: '3%',
-      right: '3%',
-      bottom: '5%',
-      top: '5%', // 减小上边距
-      height: '130px', // 明确设置高度
-    },
-    xAxis: {
-      type: 'category',
-      data: cfg.date,
-      axisLabel: { color: '#333' },
-      axisLine: { lineStyle: { color: '#cccccc' } },
-    },
-    yAxis: {
-      type: 'value',
-      name: cfg.name,
-      nameTextStyle: { color: '#ffffff' },
-      axisLabel: { color: '#ffffff' },
-      splitLine: { lineStyle: { color: 'rgba(255,255,255,0.1)' } },
-    },
-    series: [
-      {
-        name: cfg.name1,
-        type: 'line',
-        data: cfg.data1,
-        smooth: true,
-        label: {
-          show: true,
-          position: 'top',
-          color: cfg.color1,
-          fontSize: 11,
-          formatter: (params: any) => {
-            if (cfg.name.includes('温度')) return `${params.value}°`
-            if (cfg.name.includes('云量/湿度')) return `${params.value}%`
-            if (cfg.name.includes('风速')) return `${params.value}km/h`
-            return params.value
-          },
-        },
-        itemStyle: { color: cfg.color1 },
-      },
-      {
-        name: cfg.name2,
-        type: 'line',
-        data: cfg.data2,
-        smooth: true,
-        label: {
-          show: true,
-          position: 'bottom',
-          color: cfg.color2,
-          fontSize: 11,
-          formatter: (params: any) => {
-            if (cfg.name.includes('温度')) return `${params.value}°`
-            if (cfg.name.includes('云量/湿度')) return `${params.value}%`
-            if (cfg.name.includes('风速')) return `${params.value}km/h`
-            return params.value
-          },
-        },
-        itemStyle: { color: cfg.color2 },
-      },
-    ],
-  }
-
-  chartInstance = init(chartRef.value, option)
-  window.addEventListener('resize', handleResize)
+// 获取当前选中城市的逐小时图表配置
+async function fetchHourlyOptions() {
+  const city = cityList.value[currentCity.value]
+  if (!city) return
+  const opts: Record<string, EChartsOption> = {}
+  const results = await Promise.all(
+    SERIES_MAP.map((st) =>
+      fetchChartConfig({ chartType: 'hourly', city, seriesType: st })
+        .then((r) => ({ key: st, option: r.option }))
+        .catch(() => null),
+    ),
+  )
+  results.forEach((r) => {
+    if (r) opts[r.key] = r.option
+  })
+  hourlyChartOptions.value = opts
 }
 
-const handleResize = () => chartInstance?.resize()
+// 从服务端获取当前选中城市的 7 天图表配置
+async function fetchDailyOption() {
+  const city = cityList.value[currentCity.value]
+  if (!city) return
+  const st = DAILY_MAP[idx.value] || 'temp'
+  try {
+    const res = await fetchChartConfig({ chartType: 'daily', city, seriesType: st })
+    dailyChartOption.value = res.option
+  } catch {
+    dailyChartOption.value = null
+  }
+}
+
+let resizeObserver: ResizeObserver | null = null
+
+const initChart = async () => {
+  await nextTick()
+  if (!chartRef.value || !dailyChartOption.value) return
+
+  const CHART_KEY = 'showdata-daily'
+  const instance = chartPool.acquire(CHART_KEY, chartRef.value)
+  const patched = patchTooltipFormatter({ ...dailyChartOption.value } as EChartsOption, 'temp')
+  instance.setOption(patched, true)
+
+  // 首次渲染后启动 ResizeObserver
+  if (!resizeObserver && chartRef.value) {
+    resizeObserver = new ResizeObserver(() => chartPool.resizeAll())
+    resizeObserver.observe(chartRef.value)
+  }
+}
+
+const chartKeys = ['temp', 'cloud', 'wind', 'pop']
 
 onUnmounted(() => {
-  window.removeEventListener('resize', handleResize)
-  chartInstance?.dispose()
+  if (resizeObserver) {
+    resizeObserver.disconnect()
+    resizeObserver = null
+  }
+  chartPool.release('showdata-daily')
+  chartKeys.forEach((k) => chartPool.release(`hourly-${k}`))
 })
 </script>
 
