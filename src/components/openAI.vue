@@ -1,5 +1,11 @@
 <template>
-  <div class="background">
+  <div
+    class="background"
+    :style="{ width: panelWidth + 'vw' }"
+  >
+    <div class="drag-handle" @mousedown="startDrag">
+      <div class="drag-handle-grip"></div>
+    </div>
     <div class="card-AI" v-if="contexts.length === 0">
       <div class="title">Hello，有 什 么 要 问 的 吗 ？</div>
       <div class="box">
@@ -24,7 +30,7 @@
         <div
           v-if="item.type === 'ai'"
           class="ai-content"
-          v-html="formatAIContent(item.content)"
+          v-html="item.html || formatAIContent(item.content)"
         ></div>
         <!-- 用户消息：纯文本 -->
         <div v-else class="user-content">{{ item.content }}</div>
@@ -79,12 +85,13 @@
 </template>
 
 <script lang="ts" setup>
-import { ref, nextTick } from 'vue'
+import { ref, nextTick, onUnmounted } from 'vue'
 import { useCollect } from '@/stores/from'
 
 interface Message {
   type: 'user' | 'ai'
   content: string
+  html?: string
 }
 
 const collectStore = useCollect()
@@ -94,6 +101,65 @@ const isFocused = ref(false)
 const isLoading = ref(false)
 const textareaRef = ref<HTMLTextAreaElement>()
 const contextBox = ref<HTMLDivElement>()
+
+// 面板拖拽缩放
+const panelWidth = ref(40)
+const isDragging = ref(false)
+let dragStartX = 0
+let dragStartWidth = 40
+
+function startDrag(e: MouseEvent) {
+  isDragging.value = true
+  dragStartX = e.clientX
+  dragStartWidth = panelWidth.value
+  document.addEventListener('mousemove', onDrag)
+  document.addEventListener('mouseup', stopDrag)
+  document.body.style.cursor = 'ew-resize'
+  document.body.style.userSelect = 'none'
+}
+
+function onDrag(e: MouseEvent) {
+  if (!isDragging.value) return
+  const deltaX = e.clientX - dragStartX
+  const vwDelta = (deltaX / window.innerWidth) * 100
+  // 左边缘拖拽：往右拖（deltaX 正）→ 面板变窄
+  let newWidth = dragStartWidth - vwDelta
+  newWidth = Math.max(30, Math.min(50, newWidth))
+  panelWidth.value = Math.round(newWidth)
+}
+
+function stopDrag() {
+  isDragging.value = false
+  document.removeEventListener('mousemove', onDrag)
+  document.removeEventListener('mouseup', stopDrag)
+  document.body.style.cursor = ''
+  document.body.style.userSelect = ''
+}
+
+onUnmounted(() => {
+  stopDrag()
+})
+
+// chunk 缓冲 & 帧率控制
+let pendingBuffer = ''
+let flushTimer: ReturnType<typeof setTimeout> | null = null
+const FLUSH_INTERVAL = 50 // ms，约 20fps
+
+function flushContent() {
+  const msg = contexts.value[contexts.value.length - 1]
+  if (!msg || !pendingBuffer || msg.type !== 'ai') return
+
+  msg.content += pendingBuffer
+  msg.html = formatAIContent(msg.content)
+  pendingBuffer = ''
+  flushTimer = null
+  scrollToBottom()
+}
+
+function scheduleFlush() {
+  if (flushTimer) clearTimeout(flushTimer)
+  flushTimer = setTimeout(flushContent, FLUSH_INTERVAL)
+}
 
 // ==================== 内容格式化函数（核心修复）====================
 
@@ -287,23 +353,28 @@ async function getAIcontext(data: string) {
     const reader = response.body?.getReader()
     const decoder = new TextDecoder()
     const aiMessageIndex = contexts.value.length
-    contexts.value.push({ type: 'ai', content: '' })
+    contexts.value.push({ type: 'ai', content: '', html: '' })
 
     if (reader) {
       while (true) {
         const { done, value } = await reader.read()
         if (done) break
         const chunk = decoder.decode(value, { stream: true })
-        contexts.value[aiMessageIndex].content += chunk
-        scrollToBottom()
+        // 放入缓冲区，由 scheduleFlush 定时刷入 DOM（帧率优化）
+        pendingBuffer += chunk
+        scheduleFlush()
       }
     }
 
+    // 确保最后一批缓冲区内容被刷新
+    if (flushTimer) clearTimeout(flushTimer)
+    flushTimer = null
+    flushContent()
     isLoading.value = false
   } catch (error) {
     console.error('请求接口失败：', error)
     isLoading.value = false
-    contexts.value.push({ type: 'ai', content: '抱歉，请求失败了，请稍后重试。' })
+    contexts.value.push({ type: 'ai', content: '抱歉，请求失败了，请稍后重试。', html: '抱歉，请求失败了，请稍后重试。' })
     scrollToBottom()
   }
 }
@@ -358,10 +429,46 @@ async function getAIcontext(data: string) {
   scrollbar-color: rgba(0, 0, 0, 0.2) transparent;
 }
 
+/* ==================== 拖拽手柄 ==================== */
+.drag-handle {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 4px;
+  height: 100%;
+  cursor: ew-resize;
+  z-index: 100;
+  transition: background-color 0.2s;
+}
+.drag-handle:hover,
+.drag-handle:active {
+  background-color: #667eea;
+}
+
+.drag-handle-grip {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 2px;
+  height: 24px;
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: 1px;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+.drag-handle:hover .drag-handle-grip,
+.drag-handle:active .drag-handle-grip {
+  opacity: 1;
+  background: #fff;
+}
+
 /* ==================== 主容器 ==================== */
 .background {
-  position: relative;
-  width: 100%;
+  position: fixed;
+  top: 0;
+  right: 0;
+  width: 40vw;
   height: 100vh;
   overflow-y: auto;
   overflow-x: hidden;
@@ -371,6 +478,7 @@ async function getAIcontext(data: string) {
   flex-direction: column;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   -webkit-font-smoothing: antialiased;
+  z-index: 1000;
 }
 
 /* ==================== 欢迎卡片 ==================== */

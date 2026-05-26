@@ -32,6 +32,7 @@ export function getWeatherIconUrl(name: string): string | undefined {
       break
     case '雾':
       name = time + '雾'
+      break
     case '阴':
       name = '阴天'
       break
