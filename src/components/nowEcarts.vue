@@ -23,11 +23,15 @@
 import { ref, onMounted, onUnmounted, watch, computed } from 'vue'
 import type { Ref } from 'vue'
 import type { EChartsOption } from 'echarts'
+import type { ChartSchema } from '@/types/chartSchema'
 import { chartPool } from '@/utils/chartPool'
 import { patchTooltipFormatter, patchWindScatter } from '@/utils/tooltipPatcher'
+import { getResponsivePatch } from '@/utils/chartResponsive'
+import { schemaToOption } from '@/utils/schemaRenderer'
 
 const props = defineProps<{
   chartOptions: Record<string, EChartsOption | null>
+  schemaOptions?: Record<string, ChartSchema | null>
   showChart: boolean
   showIdx: number
 }>()
@@ -49,6 +53,19 @@ const chartRefMap: Record<string, Ref<HTMLDivElement | undefined>> = {
 }
 
 const chartKeys = ['temp', 'cloud', 'wind', 'pop'] as const
+
+// schema 优先，自动转为 option
+const resolvedOptions = computed(() => {
+  const opts: Record<string, EChartsOption | null> = {}
+  chartKeys.forEach((key) => {
+    if (props.schemaOptions?.[key]) {
+      opts[key] = schemaToOption(props.schemaOptions[key]!, key)
+    } else {
+      opts[key] = props.chartOptions[key] || null
+    }
+  })
+  return opts
+})
 
 // Show 模式切换
 const computedShow = computed(() => !props.showChart)
@@ -74,9 +91,9 @@ watch(
   { immediate: true },
 )
 
-// chartOptions 变化时更新
+// chartOptions / schemaOptions 变化时更新
 watch(
-  () => props.chartOptions,
+  resolvedOptions,
   (opts) => {
     if (Object.keys(opts).length === 0) return
     if (timer) clearTimeout(timer)
@@ -94,14 +111,14 @@ function initCharts() {
   if (!Show.value) {
     chartKeys.forEach((key) => {
       const dom = chartRefMap[key]?.value
-      const option = props.chartOptions[key]
+      const option = resolvedOptions.value[key]
       if (!dom || !option) return
 
       const instance = chartPool.acquire(getChartKey(key), dom)
-      const patched = patchTooltipFormatter(patchWindScatter({ ...option }), key)
-      instance.setOption(patched, true)
+      instance.setOption(option, true)
       instance.resize()
     })
+    applyHourlyResponsive()
     return
   }
 
@@ -110,13 +127,27 @@ function initCharts() {
   if (!currentKey) return
 
   const dom = chartRefMap[currentKey]?.value
-  const option = props.chartOptions[currentKey]
+  const option = resolvedOptions.value[currentKey]
   if (!dom || !option) return
 
   const instance = chartPool.acquire(getChartKey(currentKey), dom)
-  const patched = patchTooltipFormatter(patchWindScatter({ ...option }), currentKey)
-  instance.setOption(patched, true)
+  instance.setOption(option, true)
   instance.resize()
+  applyHourlyResponsive()
+}
+
+// 为所有逐小时图表应用响应式补丁
+function applyHourlyResponsive() {
+  const dom = tempChart.value || cloudChart.value || windChart.value || popChart.value
+  if (!dom) return
+  const width = dom.clientWidth
+  chartKeys.forEach((key) => {
+    const instance = chartPool.get(getChartKey(key))
+    if (instance) {
+      const patch = getResponsivePatch(width, 'hourly')
+      instance.setOption(patch)
+    }
+  })
 }
 
 let resizeObserver: ResizeObserver | null = null
@@ -132,7 +163,10 @@ onMounted(() => {
   const doms = [tempChart, cloudChart, windChart, popChart]
   const firstDom = doms.find((r) => r.value)
   if (firstDom?.value) {
-    resizeObserver = new ResizeObserver(() => chartPool.resizeAll())
+    resizeObserver = new ResizeObserver(() => {
+      chartPool.resizeAll()
+      applyHourlyResponsive()
+    })
     resizeObserver.observe(firstDom.value)
   }
 })

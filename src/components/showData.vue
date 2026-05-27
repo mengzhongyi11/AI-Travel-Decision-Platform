@@ -39,6 +39,7 @@
 
       <DowEcarts
         :chart-options="hourlyChartOptions"
+        :schema-options="hourlySchemaOptions"
         :show-chart="show"
         :show-idx="index"
         :style="{ width: 100 + '%', height: 90 + '%' }"
@@ -59,9 +60,11 @@
 <script lang="ts" setup>
 import { ref, watch, onUnmounted, nextTick, toRaw } from 'vue'
 import type { EChartsOption } from 'echarts'
+import type { ChartSchema } from '@/types/chartSchema'
 import { chartPool } from '@/utils/chartPool'
-import { fetchChartConfig } from '@/utils/apiClient'
-import { patchTooltipFormatter } from '@/utils/tooltipPatcher'
+import { fetchChartSchema } from '@/utils/apiClient'
+import { schemaToOption } from '@/utils/schemaRenderer'
+import { getResponsivePatch } from '@/utils/chartResponsive'
 import 'qweather-icons/font/qweather-icons.css'
 import DowEcarts from './nowEcarts.vue'
 import { useCollect } from '@/stores/from'
@@ -73,6 +76,7 @@ const chartRef = ref<HTMLDivElement>()
 const childRef = ref<{ handleClick: () => void }>()
 
 const hourlyChartOptions = ref<Record<string, EChartsOption>>({})
+const hourlySchemaOptions = ref<Record<string, ChartSchema | null>>({})
 const dailyChartOption = ref<EChartsOption | null>(null)
 
 // 由 showMap.vue 调用
@@ -126,31 +130,34 @@ watch(
     // 获取服务端生成的图表配置
     const primaryCity = addresses[0]
     if (primaryCity) {
-      // 获取 7 天图表配置
+      // 获取 7 天图表配置（schema 优先）
       const dailyOpts = await Promise.all(
         DAILY_MAP.map((st) =>
-          fetchChartConfig({ chartType: 'daily', city: primaryCity, seriesType: st }).catch(
+          fetchChartSchema({ chartType: 'daily', city: primaryCity, seriesType: st }).catch(
             () => null,
           ),
         ),
       )
-      // 存第一个（当前默认 seriesType）
-      dailyChartOption.value = dailyOpts[0]?.option || null
-      console.log('Received daily chart options:', dailyOpts)
+      dailyChartOption.value = dailyOpts[0] ? schemaToOption(dailyOpts[0].schema, 'daily') : null
 
-      // 获取逐小时图表配置
+      // 获取逐小时图表配置（schema 优先）
       const hourlyOpts = await Promise.all(
         SERIES_MAP.map((st) =>
-          fetchChartConfig({ chartType: 'hourly', city: primaryCity, seriesType: st })
-            .then((r) => ({ key: st, option: r.option }))
+          fetchChartSchema({ chartType: 'hourly', city: primaryCity, seriesType: st })
+            .then((r) => ({ key: st, schema: r.schema }))
             .catch(() => null),
         ),
       )
       const opts: Record<string, EChartsOption> = {}
+      const schemaOpts: Record<string, ChartSchema | null> = {}
       hourlyOpts.forEach((r) => {
-        if (r) opts[r.key] = r.option
+        if (r) {
+          opts[r.key] = schemaToOption(r.schema, r.key)
+          schemaOpts[r.key] = r.schema
+        }
       })
       hourlyChartOptions.value = opts
+      hourlySchemaOptions.value = schemaOpts
     }
 
     daily.value = dailys.value[currentCity.value]
@@ -211,15 +218,20 @@ async function fetchHourlyOptions() {
   const opts: Record<string, EChartsOption> = {}
   const results = await Promise.all(
     SERIES_MAP.map((st) =>
-      fetchChartConfig({ chartType: 'hourly', city, seriesType: st })
-        .then((r) => ({ key: st, option: r.option }))
+      fetchChartSchema({ chartType: 'hourly', city, seriesType: st })
+        .then((r) => ({ key: st, schema: r.schema }))
         .catch(() => null),
     ),
   )
+  const schemaOpts: Record<string, ChartSchema | null> = {}
   results.forEach((r) => {
-    if (r) opts[r.key] = r.option
+    if (r) {
+      opts[r.key] = schemaToOption(r.schema, r.key)
+      schemaOpts[r.key] = r.schema
+    }
   })
   hourlyChartOptions.value = opts
+  hourlySchemaOptions.value = schemaOpts
 }
 
 // 从服务端获取当前选中城市的 7 天图表配置
@@ -228,11 +240,19 @@ async function fetchDailyOption() {
   if (!city) return
   const st = DAILY_MAP[idx.value] || 'temp'
   try {
-    const res = await fetchChartConfig({ chartType: 'daily', city, seriesType: st })
-    dailyChartOption.value = res.option
+    const res = await fetchChartSchema({ chartType: 'daily', city, seriesType: st })
+    dailyChartOption.value = schemaToOption(res.schema, 'daily')
   } catch {
     dailyChartOption.value = null
   }
+}
+
+function applyShowDataResponsive() {
+  const instance = chartPool.get('showdata-daily')
+  if (!instance || !chartRef.value) return
+  const width = chartRef.value.clientWidth
+  const patch = getResponsivePatch(width, 'compare')
+  instance.setOption(patch)
 }
 
 let resizeObserver: ResizeObserver | null = null
@@ -243,12 +263,17 @@ const initChart = async () => {
 
   const CHART_KEY = 'showdata-daily'
   const instance = chartPool.acquire(CHART_KEY, chartRef.value)
-  const patched = patchTooltipFormatter({ ...dailyChartOption.value } as EChartsOption, 'temp')
-  instance.setOption(patched, true)
+  instance.setOption(dailyChartOption.value, true)
+
+  // 应用响应式补丁
+  applyShowDataResponsive()
 
   // 首次渲染后启动 ResizeObserver
   if (!resizeObserver && chartRef.value) {
-    resizeObserver = new ResizeObserver(() => chartPool.resizeAll())
+    resizeObserver = new ResizeObserver(() => {
+      chartPool.resizeAll()
+      applyShowDataResponsive()
+    })
     resizeObserver.observe(chartRef.value)
   }
 }
