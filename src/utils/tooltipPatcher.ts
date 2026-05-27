@@ -9,6 +9,7 @@ const DIRS = ['北', '东北', '东', '东南', '南', '西南', '西', '西北'
 export function patchTooltipFormatter(option: EChartsOption, chartKey: string): EChartsOption {
   ;(option as any).tooltip = {
     trigger: 'axis',
+    triggerOn: 'mousemove|click',
     backgroundColor: 'rgba(0,0,0,0.85)',
     borderColor: '#444',
     textStyle: { color: '#fff', fontSize: 11 },

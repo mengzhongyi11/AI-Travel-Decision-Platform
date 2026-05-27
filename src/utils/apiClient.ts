@@ -1,5 +1,6 @@
 import { request } from './axios'
 import type { EChartsOption } from 'echarts'
+import type { ChartSchema } from '@/types/chartSchema'
 
 export interface ChartConfigRequest {
   chartType: 'daily' | 'hourly' | 'compare'
@@ -14,10 +15,22 @@ export interface ChartConfigResponse {
   option: EChartsOption
 }
 
-/** 获取服务端生成的图表配置 */
+export interface ChartSchemaResponse {
+  chartType: string
+  city: string
+  seriesType: string
+  schema: ChartSchema
+}
+
+/** 获取服务端生成的图表配置（ECharts option） */
 export async function fetchChartConfig(params: ChartConfigRequest): Promise<ChartConfigResponse> {
   const res = await request('/api/chart/config', 'POST', params)
-  console.log('Received chart config:', res.data)
+  return res.data
+}
+
+/** 获取服务端生成的图表 Schema（语义层数据描述） */
+export async function fetchChartSchema(params: ChartConfigRequest): Promise<ChartSchemaResponse> {
+  const res = await request('/api/chart/schema', 'POST', params)
   return res.data
 }
 

@@ -50,6 +50,12 @@ class ChartInstancePool {
     const instance = this.instances.get(key)
     return !!instance && !instance.isDisposed()
   }
+
+  /** 获取原始实例（用于响应式补丁等高级操作） */
+  get(key: string): ECharts | undefined {
+    const instance = this.instances.get(key)
+    return instance && !instance.isDisposed() ? instance : undefined
+  }
 }
 
 export const chartPool = new ChartInstancePool()
