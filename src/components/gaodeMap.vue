@@ -6,10 +6,10 @@ import mapAnalysis from '@/components/showMap.vue'
 import MaoYile from '@/components/mapTile.vue'
 import openAI from '@/components/openAI.vue'
 import { useCollect } from '@/stores/from'
-// AMap 配置常量
+// AMap 配置常量（从环境变量读取）
 const AMapConfig = {
-  key: '256fe911c26522d8df5381049512009a',
-  securityJsCode: '7bdb12c2579275c29f689a11b5062c49',
+  key: import.meta.env.VITE_AMAP_KEY,
+  securityJsCode: import.meta.env.VITE_AMAP_SECURITY_CODE,
   version: '2.1Beta',
   plugins: [
     'AMap.Geolocation',
@@ -463,7 +463,11 @@ async function addWeatherLayer(type: string) {
     opacity: ba,
     visible: true,
     getTileUrl: (x: number, y: number, z: number) => {
-      return `http://localhost:3001/weatherMap/getMapData/${type}/${z}/${x}/${y}`
+      // 取整确保坐标是整数，避免 OpenWeatherMap 解析失败
+      const tx = Math.floor(x)
+      const ty = Math.floor(y)
+      const tz = Math.floor(z)
+      return `http://localhost:3001/weatherMap/getMapData/${type}/${tz}/${tx}/${ty}`
     },
   } as any)
   console.log('添加天气图层:', type)
