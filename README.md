@@ -2,6 +2,14 @@
 
 基于 Vue 3 + Vite + TypeScript 的气象实况可视化应用，集成高德地图 3D 渲染与 ECharts 图表展示。图表 option 由服务端生成，通过 SSE 实时推送。
 
+## 部分功能展示：
+
+![](C:\Users\蒙仲毅\Pictures\联想截图\联想截图_20260531212947.png)
+
+![联想截图_20260531213007](C:\Users\蒙仲毅\Pictures\联想截图\联想截图_20260531213007.png)
+
+![联想截图_20260531213111](C:\Users\蒙仲毅\Pictures\联想截图\联想截图_20260531213111.png)
+
 ## 技术栈
 
 | 层级     | 技术                                      | 版本    |
@@ -16,6 +24,29 @@
 | 图标     | qweather-icons + 本地 PNG                 | ^1.8.0  |
 | 测试     | Vitest + jsdom + @vue/test-utils          | ^4.0.14 |
 | 代码检查 | ESLint (flat config) + Prettier           | —       |
+
+## 环境变量配置
+
+项目 API Key 已从源码抽离到环境变量，**不要直接修改源码**，请创建 `.env` 文件（已提供 `.env.example` 作为模版）：
+
+```bash
+# 复制模版创建 .env 文件
+cp .env.example .env
+# Windows: copy .env.example .env
+```
+
+然后填入你的高德地图 Key：
+
+```env
+VITE_AMAP_KEY=你申请的高德地图Web端Key
+VITE_AMAP_SECURITY_CODE=对应的安全密钥
+```
+
+> 高德地图 Key 从 [高德开放平台](https://console.amap.com/) 申请（应用 → 添加 Key → Web端 JS API）。
+
+## 后端：
+
+https://github.com/mengzhongyi11/AI-Travel-Decision-Platform_Backend.git
 
 ## 快速开始
 
@@ -40,7 +71,7 @@ npm run lint
 npm run format
 ```
 
-> 前端依赖后端 AI-Travel-Decision-Platform_Backend（localhost:3001），请先启动后端。
+> 前端依赖后端 weather-nodejs（localhost:3001），请先配置好后端 `.env` 并启动。
 
 ## 目录结构
 
