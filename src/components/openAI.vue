@@ -85,7 +85,7 @@
 </template>
 
 <script lang="ts" setup>
-import { ref, nextTick, onUnmounted } from 'vue'
+import { ref, inject, nextTick, onUnmounted } from 'vue'
 import { useCollect } from '@/stores/from'
 
 interface Message {
@@ -95,6 +95,32 @@ interface Message {
 }
 
 const collectStore = useCollect()
+
+// 从 gaodeMap.vue 注入的 AI 规划路线方法
+const planFromAI = inject<(cities: string[]) => void>('planFromAI')
+
+/** 从用户消息中提取城市名列表 */
+function extractCities(text: string): string[] {
+  // 匹配 "从X到Y" 或 "从X到Y到Z"
+  const matchTo = text.match(/从(.+?)到(.+)/)
+  if (matchTo) {
+    const parts = matchTo[0].replace(/^从/, '').split(/到/).map(s => s.trim()).filter(Boolean)
+    if (parts.length >= 2) return parts
+  }
+  // 匹配 "X、Y、Z" 或 "X，Y，Z" 或 "X,Y,Z"
+  const matchSep = text.match(/([一-鿿]{2,4})([、，,]\s*[一-鿿]{2,4})+/)
+  if (matchSep) {
+    const parts = matchSep[0].split(/[、，,]/).map(s => s.trim()).filter(Boolean)
+    if (parts.length >= 2) return parts
+  }
+  // 匹配以空格分隔的 2-3 个中文词组
+  const words = text.trim().split(/\s+/).filter(w => /^[一-鿿]{2,4}$/.test(w))
+  if (words.length >= 2) return words
+  // 单城市：消息主体为 2-4 个中文字
+  const single = text.trim()
+  if (/^[一-鿿]{2,4}$/.test(single)) return [single]
+  return []
+}
 const context = ref('')
 const contexts = ref<Message[]>([])
 const isFocused = ref(false)
@@ -332,6 +358,13 @@ const submitContext = () => {
       textareaRef.value.style.height = 'auto'
     }
   })
+
+  // 提取城市名并联动地图
+  const cities = extractCities(trimmed)
+  console.log('submitContext 提取城市:', cities, 'planFromAI 存在:', !!planFromAI)
+  if (cities.length > 0) {
+    planFromAI?.(cities)
+  }
 
   getAIcontext(trimmed)
 }
@@ -989,5 +1022,13 @@ async function getAIcontext(data: string) {
   .ai-content :deep(.ai-table td) {
     padding: 8px 6px;
   }
+}
+
+@media (max-width: 768px) {
+  .background {
+    width: 100vw !important;
+    right: 0;
+  }
+  .drag-handle { display: none; }
 }
 </style>

@@ -50,4 +50,8 @@ watch(
   display: flex;
   background-color: #000000;
 }
+
+@media (max-width: 768px) {
+  .weather { flex-direction: column; overflow-y: auto; }
+}
 </style>

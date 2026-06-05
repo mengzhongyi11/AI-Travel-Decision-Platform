@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, watch, ref, nextTick, provide } from 'vue'
+import type { ComponentPublicInstance } from 'vue'
 import '@amap/amap-jsapi-types'
 import { useAddress } from '@/stores/map'
 import mapAnalysis from '@/components/showMap.vue'
@@ -98,6 +99,75 @@ onUnmounted(() => {
 })
 
 provide('amapInstance', map)
+
+// 路线规划子组件 ref（用于 AI 联动）
+const routeAnalysisRef = ref<ComponentPublicInstance & { setExternalRoute?: (cities: string[]) => void }>()
+
+provide('planFromAI', planFromAI)
+
+/** AI 对话中提取的城市名联动地图 */
+function planFromAI(cities: string[]) {
+  console.log('planFromAI 被调用:', cities)
+  if (!cities.length) return
+  const addrStore = useAddress()
+  if (cities.length === 1) {
+    console.log('planFromAI: 单城市跳转:', cities[0])
+    addrStore.setAddress(cities[0]!)
+    return
+  }
+  // 2+ 城市：调用路线规划
+  console.log('planFromAI: 路线规划:', cities, '子组件ref:', !!routeAnalysisRef.value)
+  if (cities.length === 2) {
+    routeAnalysisRef.value?.setExternalRoute?.(cities)
+    return
+  }
+  // 3+ 城市：用经纬度计算最优路径
+  optimizeRoute(cities)
+}
+
+/** 3+ 城市：获取坐标后按距离排序 */
+async function optimizeRoute(cities: string[]) {
+  const geocoder = new (window as any).AMap.Geocoder({ city: '全国' })
+  const coords: { name: string; lng: number; lat: number }[] = []
+
+  for (const name of cities) {
+    try {
+      const result = await new Promise<any>((resolve, reject) => {
+        geocoder.getLocation(name, (status: string, result: any) => {
+          if (status === 'complete' && result.geocodes?.[0]?.location) {
+            resolve({ name, lng: result.geocodes[0].location.lng, lat: result.geocodes[0].location.lat })
+          } else reject(name)
+        })
+      })
+      coords.push(result)
+    } catch {
+      console.warn('无法解析坐标:', name)
+    }
+  }
+  if (coords.length < 2) return
+
+  // 贪心算法：从第一个城市起，每次选最近的未访问城市
+  const sorted: string[] = [coords[0].name]
+  const visited = new Set([0])
+  let current = 0
+  while (visited.size < coords.length) {
+    let nearest = -1
+    let minDist = Infinity
+    for (let i = 0; i < coords.length; i++) {
+      if (visited.has(i)) continue
+      const dx = coords[current].lng - coords[i].lng
+      const dy = coords[current].lat - coords[i].lat
+      const dist = dx * dx + dy * dy // 平方距离，无需开方
+      if (dist < minDist) { minDist = dist; nearest = i }
+    }
+    if (nearest === -1) break
+    visited.add(nearest)
+    sorted.push(coords[nearest].name)
+    current = nearest
+  }
+
+  routeAnalysisRef.value?.setExternalRoute?.(sorted)
+}
 
 /**
  * 初始化地图
@@ -490,7 +560,7 @@ function changeMin() {
 <template>
   <div id="container" class="map-box">
     <div class="Analysis">
-      <mapAnalysis @getMapdata="getMapdata"></mapAnalysis>
+      <mapAnalysis ref="routeAnalysisRef" @getMapdata="getMapdata"></mapAnalysis>
     </div>
 
     <div v-if="points" id="my-panel" :class="{ 'panel-section': true, hidden: !existUp }">
@@ -605,5 +675,34 @@ function changeMin() {
   height: 20px;
   opacity: 0.9;
   overflow: hidden; /* 收起时隐藏内容 */
+}
+
+/* ==================== 移动端适配 ==================== */
+@media (max-width: 768px) {
+  .Analysis {
+    width: 100%;
+    height: 50%;
+    left: 0;
+    top: auto;
+    bottom: 0;
+  }
+
+  .card-AI {
+    width: 100%;
+    right: 0;
+    top: auto;
+    bottom: 0;
+    height: 60%;
+  }
+
+  .panel-section {
+    left: 5%;
+    width: 90%;
+    top: 10%;
+    height: auto;
+    max-height: 80%;
+  }
+
+  .tile { height: 8%; }
 }
 </style>
