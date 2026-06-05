@@ -140,6 +140,26 @@ const closeProcess = (index: number) => {
     existProcess.value = true
   }
 }
+
+/** 外部（AI/路由规划）传入城市列表，自动填入起止点和中途点 */
+function setExternalRoute(cities: string[]) {
+  if (cities.length < 2) return
+  addressStart.value = cities[0]
+  existStart.value = false
+  addressEnd.value = cities[cities.length - 1]
+  existEnd.value = false
+  if (cities.length > 2) {
+    arrProcess.value = cities.slice(1, -1)
+    existProcess.value = false
+  }
+  // 触发路线规划（与 submitEnd 逻辑一致）
+  const points: (string | string[])[] = [addressStart.value, arrProcess.value, addressEnd.value]
+  citys.value = points
+  childRef.value?.handleClick(true)
+  emit('getMapdata', points)
+}
+
+defineExpose({ setExternalRoute })
 </script>
 
 <style scoped>
@@ -318,5 +338,10 @@ const closeProcess = (index: number) => {
 /* 当 has-value 时，调整 input-wrapper 的布局 */
 .input-wrapper.has-value {
   /* 保持相同的尺寸，避免抖动 */
+}
+
+@media (max-width: 768px) {
+  .input-wrapper { width: 80%; margin-left: 5%; }
+  .start, .end { padding: 12px; min-height: 50px; }
 }
 </style>

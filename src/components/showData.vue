@@ -337,4 +337,8 @@ onUnmounted(() => {
   align-items: center;
   margin-left: 27px;
 }
+
+@media (max-width: 768px) {
+  .day { height: auto; min-height: 200px; }
+}
 </style>

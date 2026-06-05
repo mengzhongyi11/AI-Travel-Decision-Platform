@@ -128,9 +128,12 @@ async function getImg() {
   let Img = ''
   const hour = new Date().getHours()
   colortime.value = hour
-  if (hour >= 6 && hour < 7) Img = sunrise.value[Math.floor(Math.random() * sunrise.value.length)] || ''
-  else if (hour >= 7 && hour < 18) Img = day.value[Math.floor(Math.random() * day.value.length)] || ''
-  else if (hour >= 18 && hour < 19) Img = sunset.value[Math.floor(Math.random() * sunset.value.length)] || ''
+  if (hour >= 6 && hour < 7)
+    Img = sunrise.value[Math.floor(Math.random() * sunrise.value.length)] || ''
+  else if (hour >= 7 && hour < 18)
+    Img = day.value[Math.floor(Math.random() * day.value.length)] || ''
+  else if (hour >= 18 && hour < 19)
+    Img = sunset.value[Math.floor(Math.random() * sunset.value.length)] || ''
   else Img = night.value[Math.floor(Math.random() * night.value.length)] || ''
   return Img
 }
@@ -176,7 +179,10 @@ function showMap() {
   </div>
   <div class="main-img" :style="{ backgroundImage: `url(${srcImg})` }">
     <div style="width: 100%; height: 100%" v-if="selected">
-      <DailyEchars :chart-option="(chartStore.dailyOptions[dailySeriesMap[idx]!] as any) || null" style="width: 100%; height: 90%"></DailyEchars>
+      <DailyEchars
+        :chart-option="(chartStore.dailyOptions[dailySeriesMap[idx]!] as any) || null"
+        style="width: 100%; height: 90%"
+      ></DailyEchars>
     </div>
 
     <div class="unper-new" style="opacity: 0">
@@ -228,13 +234,7 @@ function showMap() {
       <text>{{ nowDate?.temp }} °</text>
     </div>
     <div
-      style="
-        display: flex;
-        flex-direction: row;
-        gap: 20px;
-        margin-top: 2%;
-        justify-content: center;
-      "
+      style="display: flex; flex-direction: row; gap: 20px; margin-top: 2%; justify-content: center"
     >
       <div class="nowbox-text">{{ nowDate?.text }}</div>
       <div class="nowbox-text">{{ nowDate?.windDir }}</div>
@@ -758,5 +758,292 @@ function showMap() {
 .temp text {
   margin-left: 29%;
   color: #fff;
+}
+
+/* ==================== 移动端适配（三段式流式布局） ==================== */
+@media (max-width: 768px) {
+  /* ---- 全局滚动容器 ---- */
+  .main-img,
+  .container {
+    position: relative;
+    width: 100%;
+  }
+  .container {
+    height: 38vh;
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: 0;
+  }
+  .mask {
+    height: 100%;
+    background: linear-gradient(to bottom, transparent 50%, rgba(0, 0, 0, 0.85) 100%);
+  }
+
+  /* 主内容撑出滚动区 */
+  .main-img {
+    top: 0;
+    left: 0;
+    height: auto;
+    min-height: 0;
+    box-shadow: none;
+    border-radius: 0;
+    padding-top: 20vh;
+    background-color: transparent !important;
+    overflow: hidden;
+  }
+
+  /* 图表标签：大幅上浮到背景底部 */
+  .choose-card {
+    position: relative;
+    left: auto;
+    bottom: auto;
+    width: 92%;
+    margin: 30px auto 6px;
+    height: auto;
+    display: flex;
+    flex-direction: row;
+    gap: 6px;
+  }
+
+  /* ---- 地址：顶部 overlay ---- */
+  .address {
+    position: fixed;
+    top: 6%;
+    left: 50%;
+    transform: translateX(-50%);
+    width: auto;
+    height: auto;
+    flex-direction: row;
+    gap: 0;
+    z-index: 2;
+  }
+  .addIcon {
+    display: none;
+  } /* 隐藏定位小动画 */
+  .address text {
+    font-size: 14px;
+    font-weight: 600;
+    text-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
+  }
+  .address div {
+    flex-direction: row !important;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 2px !important;
+  }
+
+  /* ---- 搜索 + 定位按钮 ---- */
+  .search-card {
+    position: fixed;
+    top: 4%;
+    left: 4%;
+    z-index: 2;
+    width: 36px;
+    height: 36px;
+    background: rgba(0, 0, 0, 0.3);
+    border-radius: 50%;
+  }
+  .search-card img {
+    width: 20px;
+    height: 20px;
+    margin: 8px;
+  }
+  .search-input {
+    display: none;
+  }
+  .g-img {
+    position: fixed;
+    top: 4%;
+    right: 4%;
+    z-index: 2;
+    width: 28px;
+    height: 28px;
+  }
+
+  /* ---- 中部：实时天气卡片（紧凑上下布局） ---- */
+  .today {
+    position: relative;
+    left: auto;
+    top: auto;
+    width: 92%;
+    margin: 0% auto 8px;
+    height: auto;
+    border-radius: 14px;
+    padding: 14px 14px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    background: rgba(30, 30, 30, 0.85);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    z-index: 1;
+  }
+  .today-text {
+    font-size: 12px;
+    color: #999;
+    margin: 0;
+    font-weight: 500;
+  }
+
+  /* 温度 + 状态：居中紧凑 */
+  .nowbox {
+    width: 100%;
+    height: auto;
+    margin: 0;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+  }
+  .nowbox-img {
+    width: 40px;
+    height: 40px;
+    margin: 0;
+  }
+  .nowbox text {
+    font-size: 2.6rem;
+    margin-left: 0;
+    color: #fff;
+    font-weight: 300;
+    line-height: 1;
+  }
+  .nowbox-text {
+    font-size: 14px;
+    color: #bbb;
+  }
+
+  /* 三指标：一行展示 */
+  .nowbox-card {
+    width: 100%;
+    height: auto;
+    margin: 0;
+    display: flex;
+    flex-direction: row;
+    justify-content: space-around;
+    padding-top: 8px;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+  }
+  .nowbox-card div {
+    align-items: center;
+    gap: 2px;
+  }
+  .card-icon {
+    width: 18px;
+    height: 18px;
+  }
+  .nowbox-card div .card-text {
+    font-size: 15px;
+    margin: 1px 0;
+  }
+  .nowbox-card div p {
+    font-size: 10px;
+    margin: 0;
+  }
+  .nowbox-card div span {
+    font-size: 9px;
+  }
+
+  /* ---- 图表容器 ---- */
+  .main-img > div[style*='height: 100%'] {
+    width: 92% !important;
+    margin: 0 auto 12px;
+    height: 220px !important;
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  .main-img > div[style*='height: 100%'] .box-card {
+    height: 100% !important;
+  }
+
+  /* 7天预报：横滑 */
+  .daily {
+    position: relative;
+    left: auto;
+    top: auto;
+    width: 92%;
+    margin: 0 auto 16px;
+    height: auto;
+    display: flex;
+    flex-direction: row;
+    overflow-x: auto;
+    gap: 8px;
+    padding: 10px;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 16px;
+  }
+  .firstbox {
+    flex: 0 0 auto;
+    width: 90px;
+    min-width: 0;
+    height: auto;
+    min-height: 110px;
+    margin: 0;
+    padding: 8px;
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.06);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+  }
+  .firstbox text {
+    margin: 0;
+    text-align: center;
+    font-size: 12px;
+    color: #fff;
+  }
+  .box-icon {
+    margin: 0;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+  }
+  .box-icon text {
+    font-size: 11px;
+    color: #aaa;
+  }
+  .weather-icon {
+    font-size: 24px;
+    margin: 0;
+  }
+  .temp {
+    margin: 0;
+    justify-content: center;
+  }
+  .temp text {
+    margin: 0;
+    font-size: 12px;
+    color: #fff;
+  }
+
+  /* ---- 取消按钮：固定在视口右上角，不受滚动影响 ---- */
+  .unper {
+    display: flex !important;
+    position: fixed;
+    top: 12px;
+    right: 12px;
+    width: 36px;
+    height: 36px;
+    z-index: 100;
+    background: rgba(0,0,0,0.4);
+    border-radius: 50%;
+    align-items: center;
+    justify-content: center;
+  }
+  .unper-card1, .unper-card2, .unper-card3 {
+    position: absolute;
+    width: 14px;
+    height: 14px;
+    border-bottom: 2px solid #fff;
+    border-right: 2px solid #fff;
+  }
+  .unper-card1 { transform: rotate(45deg); top: 8px; animation: none; }
+  .unper-card2 { transform: rotate(45deg); top: 12px; animation: none; }
+  .unper-card3 { transform: rotate(45deg); top: 16px; animation: none; }
+  .unper-new {
+    display: none;
+  }
 }
 </style>
