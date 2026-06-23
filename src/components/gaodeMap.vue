@@ -529,15 +529,11 @@ async function addWeatherLayer(type: string) {
   currentLayer.value?.setMap(null)
   currentLayer.value = new AMap.TileLayer({
     zIndex: 999,
-    tileSize: 128,
+    tileSize: 256,  // 高德默认 256，必须与 OWM 瓦片尺寸一致，否则坐标错位
     opacity: ba,
     visible: true,
     getTileUrl: (x: number, y: number, z: number) => {
-      // 取整确保坐标是整数，避免 OpenWeatherMap 解析失败
-      const tx = Math.floor(x)
-      const ty = Math.floor(y)
-      const tz = Math.floor(z)
-      return `http://localhost:3001/weatherMap/getMapData/${type}/${tz}/${tx}/${ty}`
+      return `http://localhost:3001/weatherMap/getMapData/${type}/${Math.floor(z)}/${Math.floor(x)}/${Math.floor(y)}`
     },
   } as any)
   console.log('添加天气图层:', type)
