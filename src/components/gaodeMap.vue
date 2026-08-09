@@ -61,6 +61,10 @@ const addrStore = useAddress()
 const collectStore = useCollect()
 const isMapInitialized = ref(false)
 const ZOOM_3D = 12
+// 默认中心坐标（北京，定位失败时回退）
+const defaultCenter: [number, number] = [116.397428, 39.90923]
+// 地图创建前定位完成的坐标缓存（定位与地图创建并行时使用）
+let pendingCenter: [number, number] | null = null
 
 // 标记点内容
 const markerContent = `
@@ -182,8 +186,8 @@ async function initializeMap(): Promise<void> {
       plugins: AMapConfig.plugins,
     })
 
-    // 默认中心坐标（北京）
-    const defaultCenter: [number, number] = [116.397428, 39.90923]
+    // 提前触发定位（不依赖地图实例），与地图创建并行，缩短定位等待
+    await initGeolocation()
 
     // 创建地图实例
     map = new AMap.Map('container', {
@@ -220,9 +224,14 @@ async function initializeMap(): Promise<void> {
       policy: AMap.DrivingPolicy.LEAST_TIME,
     })
 
-    // 设置默认中心和地址
-    getCenterAddress(defaultCenter)
+    // 地图初始中心（北京兜底）；地址留待定位结果填充——页面默认先定位
     setMapCenter(defaultCenter)
+
+    // 定位先于地图创建完成时，应用缓存坐标
+    if (pendingCenter) {
+      setMapCenter(pendingCenter)
+      pendingCenter = null
+    }
 
     // 标记地图已初始化
     isMapInitialized.value = true
@@ -246,23 +255,19 @@ async function initControls(): Promise<void> {
     })
     map.addControl(toolbarControl)
   }
-
-  // 初始化定位控件
-  await initGeolocation()
+  // 定位已提前在 initializeMap 中触发，避免重复
 }
 
 /**
  * 初始化定位控件并获取当前位置
  */
 async function initGeolocation(): Promise<void> {
-  if (!map) return
-
   try {
-    // 创建定位控件
+    // 创建定位控件（不需要地图实例即可触发定位）
     if (!geolocationControl) {
       geolocationControl = new AMap.Geolocation({
-        enableHighAccuracy: true,
-        timeout: 10000,
+        enableHighAccuracy: false, // 天气应用城市级精度即可，避免高精度 GPS 慢
+        timeout: 5000, // 缩短超时，避免长时间无响应
         showButton: false,
         showMarker: true,
         showCircle: true,
@@ -271,7 +276,9 @@ async function initGeolocation(): Promise<void> {
         offset: [70, 30],
       })
 
-      map.addControl(geolocationControl)
+      if (map) {
+        map.addControl(geolocationControl)
+      }
 
       // 监听定位完成事件
       geolocationControl.on('complete', handleGeolocationComplete)
@@ -293,10 +300,14 @@ function handleGeolocationComplete(result: GeolocationResult): void {
   const center: [number, number] = [lng, lat]
   console.log('定位完成:', center)
 
-  // 更新地址信息
+  // 立即更新地址（不依赖地图实例，天气尽快加载）
   getCenterAddress(center)
-  // 更新地图中心
-  setMapCenter(center)
+  // 更新地图中心；地图未就绪时缓存坐标，初始化完成后应用
+  if (map) {
+    setMapCenter(center)
+  } else {
+    pendingCenter = center
+  }
 }
 
 /**
@@ -304,6 +315,13 @@ function handleGeolocationComplete(result: GeolocationResult): void {
  */
 function handleGeolocationError(error: any): void {
   console.error('定位失败:', error)
+  // 定位失败时回退到默认地址（北京），避免地址为空
+  getCenterAddress(defaultCenter)
+  if (map) {
+    setMapCenter(defaultCenter)
+  } else {
+    pendingCenter = defaultCenter
+  }
 }
 
 /**

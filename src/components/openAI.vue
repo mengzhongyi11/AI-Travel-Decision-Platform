@@ -99,28 +99,6 @@ const collectStore = useCollect()
 // 从 gaodeMap.vue 注入的 AI 规划路线方法
 const planFromAI = inject<(cities: string[]) => void>('planFromAI')
 
-/** 从用户消息中提取城市名列表 */
-function extractCities(text: string): string[] {
-  // 匹配 "从X到Y" 或 "从X到Y到Z"
-  const matchTo = text.match(/从(.+?)到(.+)/)
-  if (matchTo) {
-    const parts = matchTo[0].replace(/^从/, '').split(/到/).map(s => s.trim()).filter(Boolean)
-    if (parts.length >= 2) return parts
-  }
-  // 匹配 "X、Y、Z" 或 "X，Y，Z" 或 "X,Y,Z"
-  const matchSep = text.match(/([一-鿿]{2,4})([、，,]\s*[一-鿿]{2,4})+/)
-  if (matchSep) {
-    const parts = matchSep[0].split(/[、，,]/).map(s => s.trim()).filter(Boolean)
-    if (parts.length >= 2) return parts
-  }
-  // 匹配以空格分隔的 2-3 个中文词组
-  const words = text.trim().split(/\s+/).filter(w => /^[一-鿿]{2,4}$/.test(w))
-  if (words.length >= 2) return words
-  // 单城市：消息主体为 2-4 个中文字
-  const single = text.trim()
-  if (/^[一-鿿]{2,4}$/.test(single)) return [single]
-  return []
-}
 const context = ref('')
 const contexts = ref<Message[]>([])
 const isFocused = ref(false)
@@ -359,14 +337,55 @@ const submitContext = () => {
     }
   })
 
-  // 提取城市名并联动地图
-  const cities = extractCities(trimmed)
-  console.log('submitContext 提取城市:', cities, 'planFromAI 存在:', !!planFromAI)
-  if (cities.length > 0) {
-    planFromAI?.(cities)
-  }
-
+  // 城市联动由模型工具调用（tool_call SSE 事件）驱动，见 handleSSEEvent
   getAIcontext(trimmed)
+}
+
+/** 解析单个 SSE 事件块（event: 行 + data: 行） */
+const handleSSEEvent = (raw: string) => {
+  let eventName = 'message'
+  const dataLines: string[] = []
+
+  for (const line of raw.split('\n')) {
+    if (!line || line.startsWith(':')) continue // 忽略空行与注释行（:ok / :keepalive）
+    if (line.startsWith('event:')) {
+      eventName = line.slice(6).trim()
+    } else if (line.startsWith('data:')) {
+      dataLines.push(line.slice(5).trimStart())
+    }
+  }
+  if (!dataLines.length) return
+  const data = dataLines.join('\n')
+
+  if (eventName === 'message') {
+    try {
+      const content = JSON.parse(data)
+      if (typeof content === 'string') {
+        // 放入缓冲区，由 scheduleFlush 定时刷入 DOM（帧率优化）
+        pendingBuffer += content
+        scheduleFlush()
+      }
+    } catch {
+      // 非 JSON 内容按纯文本累积
+      pendingBuffer += data
+      scheduleFlush()
+    }
+  } else if (eventName === 'tool_call') {
+    try {
+      const payload = JSON.parse(data)
+      if (payload?.type === 'route') {
+        // 路线规划：联动地图
+        planFromAI?.(payload.cities)
+      } else if (payload?.type === 'weather') {
+        // 天气查询：切换天气面板到该城市
+        planFromAI?.([payload.city])
+      }
+    } catch (e) {
+      console.error('tool_call 事件解析失败:', e)
+    }
+  } else if (eventName === 'error') {
+    console.error('AI 流式错误:', data)
+  }
 }
 
 async function getAIcontext(data: string) {
@@ -389,14 +408,21 @@ async function getAIcontext(data: string) {
     contexts.value.push({ type: 'ai', content: '', html: '' })
 
     if (reader) {
+      let buffer = ''
       while (true) {
         const { done, value } = await reader.read()
         if (done) break
-        const chunk = decoder.decode(value, { stream: true })
-        // 放入缓冲区，由 scheduleFlush 定时刷入 DOM（帧率优化）
-        pendingBuffer += chunk
-        scheduleFlush()
+        buffer += decoder.decode(value, { stream: true })
+        // 按 SSE 事件（空行分隔）切分解析
+        let sepIdx
+        while ((sepIdx = buffer.indexOf('\n\n')) !== -1) {
+          const rawEvent = buffer.slice(0, sepIdx)
+          buffer = buffer.slice(sepIdx + 2)
+          handleSSEEvent(rawEvent)
+        }
       }
+      // 处理末尾残留事件
+      if (buffer.trim()) handleSSEEvent(buffer)
     }
 
     // 确保最后一批缓冲区内容被刷新

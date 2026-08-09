@@ -7,6 +7,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import 'qweather-icons/font/qweather-icons.css'
 import { getWeatherIconUrl } from '@/utils/icon'
 import DailyEchars from './dailyEcharts.vue'
+import CitySearch from './citySearch.vue'
 
 const addrStore = useAddress()
 const showG = useMap()
@@ -191,10 +192,7 @@ function showMap() {
       <div class="unper-card3"></div>
     </div>
 
-    <div class="search-card" v-show="exist">
-      <div class="search-icon"><img src="../img/search.png" /></div>
-      <input type="text" class="search-input" placeholder="请输入地址..." />
-    </div>
+    <CitySearch v-show="exist" />
 
     <img @click="showMap" v-show="exist" src="../img/三维地图.png" class="g-img" />
 
@@ -322,42 +320,6 @@ function showMap() {
   z-index: 1;
   box-shadow: inset -2px -2px 2px rgba(24, 24, 24, 0.7);
   border-top-left-radius: 5px;
-}
-
-.search-card {
-  position: absolute;
-  top: 6%;
-  left: 2%;
-  width: 2.5rem;
-  height: 2.5rem;
-  display: flex;
-  align-items: center;
-  border-radius: 20px;
-  transition: all 0.7s cubic-bezier(0.4, 0, 0.2, 1);
-  overflow: hidden;
-}
-
-.search-card:hover {
-  width: 40%;
-  height: 10%;
-  border: 1px solid #efefef;
-}
-
-.search-card img {
-  width: 40px;
-  height: 40px;
-  margin-left: 3%;
-}
-
-.search-input {
-  border: none;
-  outline: none;
-  background: transparent;
-  font-size: 16px;
-  margin-left: 3%;
-  width: 70%;
-  color: #efefef;
-  transition: all 0.3s ease 0.1s;
 }
 
 .g-img {
@@ -833,25 +795,7 @@ function showMap() {
     gap: 2px !important;
   }
 
-  /* ---- 搜索 + 定位按钮 ---- */
-  .search-card {
-    position: fixed;
-    top: 4%;
-    left: 4%;
-    z-index: 2;
-    width: 36px;
-    height: 36px;
-    background: rgba(0, 0, 0, 0.3);
-    border-radius: 50%;
-  }
-  .search-card img {
-    width: 20px;
-    height: 20px;
-    margin: 8px;
-  }
-  .search-input {
-    display: none;
-  }
+  /* ---- 定位按钮 ---- */
   .g-img {
     position: fixed;
     top: 4%;
